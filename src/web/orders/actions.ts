@@ -1,11 +1,11 @@
 import {
-	DriftPerpTradingService,
 	PlaceLimitOrderResponse,
-} from '@/drift/perp-test-flow';
+	getArcadePerpService,
+} from '@/drift/ArcadePerpService';
 import type { OrderBox } from '@/web/pages/L2';
 import { PositionDirection } from '@drift-labs/sdk';
 
-const perpService = new DriftPerpTradingService();
+const perpService = getArcadePerpService();
 
 function directionLabel(direction: PositionDirection | undefined): string {
 	if (direction == null) return 'ALL';
