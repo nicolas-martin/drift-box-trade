@@ -1,19 +1,47 @@
-// Stub order action functions.
-// Replace bodies with real integrations (e.g., send tx, call backend).
+import {
+	DriftPerpTradingService,
+	PlaceLimitOrderResponse,
+} from '@/drift/perp-test-flow';
 import type { OrderBox } from '@/web/pages/L2';
+import { PositionDirection } from '@drift-labs/sdk';
+
+const perpService = new DriftPerpTradingService();
+
+function directionLabel(direction: PositionDirection | undefined): string {
+	if (direction == null) return 'ALL';
+	return direction === PositionDirection.LONG ? 'LONG' : 'SHORT';
+}
 
 export async function placeCreateOrder(order: OrderBox): Promise<void> {
-	// TODO: Implement real create placement
-	console.log('[orders] create stub', order);
+	const midPrice = (order.p0 + order.p1) / 2;
+	const result: PlaceLimitOrderResponse = await perpService.placeLimitOrder({
+		orderId: order.id,
+		targetPrice: midPrice,
+		waitForFill: false,
+	});
+
+	console.log('[orders] placed perp limit order', {
+		id: order.id,
+		direction: directionLabel(result.direction),
+		targetPrice: midPrice,
+		signature: result.signature,
+	});
 }
 
 export async function placeTriggerOrder(order: OrderBox): Promise<void> {
-	// TODO: Implement real trigger handling
-	console.log('[orders] trigger stub', order);
+	const result = await perpService.handleTrigger(order.id);
+	console.log('[orders] trigger hit, closing positions', {
+		id: order.id,
+		direction: directionLabel(result.direction),
+		signatures: result.signatures,
+	});
 }
 
 export async function placeExpireCleanup(order: OrderBox): Promise<void> {
-	// TODO: Implement real expire cleanup
-	console.log('[orders] expire stub', order);
+	const result = await perpService.handleExpiry(order.id);
+	console.log('[orders] order expired, ensuring positions closed', {
+		id: order.id,
+		direction: directionLabel(result.direction),
+		signatures: result.signatures,
+	});
 }
-

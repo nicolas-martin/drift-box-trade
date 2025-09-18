@@ -2,6 +2,7 @@ import * as anchor from '@coral-xyz/anchor';
 import {
 	Connection,
 	PublicKey,
+	Transaction,
 	VersionedTransaction,
 } from '@solana/web3.js';
 import {
@@ -24,6 +25,7 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // Configuration
 const POSITION_SIZE = '0.01'; // Minimum position size
+export const DEFAULT_POSITION_SIZE = parseFloat(POSITION_SIZE);
 const DEFAULT_MARKET_INDEX = 0; // SUI-PERP
 export const MARKET_INDEX = Number(process.env.MARKET_INDEX ?? DEFAULT_MARKET_INDEX);
 const FILL_TIMEOUT_MS = 60_000;
@@ -31,6 +33,7 @@ const CLOSE_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 const FILL_TOLERANCE_PERCENT = 95;
 const LIMIT_ORDER_SLIPPAGE_BPS = 10; // 0.10% above oracle
+export const DEFAULT_LIMIT_ORDER_SLIPPAGE_BPS = LIMIT_ORDER_SLIPPAGE_BPS;
 
 // Colors for output
 const GREEN = '\x1b[32m';
@@ -47,8 +50,9 @@ type SwiftEnabledWallet = anchor.Wallet & {
 
 let wallet: SwiftEnabledWallet;
 let connection: Connection;
+let initializeClientsPromise: Promise<void> | null = null;
 
-interface PositionSummary {
+export interface PositionSummary {
 	marketIndex: number;
 	marketName: string;
 	direction: 'LONG' | 'SHORT';
@@ -63,83 +67,102 @@ interface PositionSummary {
 	baseAssetAmountRaw: BN;
 }
 
-export async function initializeClients() {
-	console.log(`${GREEN}🚀 Initializing clients...${NC}\n`);
-
-	if (!process.env.ANCHOR_WALLET) {
-		throw new Error('ANCHOR_WALLET must be set in .env file');
+export async function initializeClients(): Promise<void> {
+	if (authorityDrift && centralServerDrift && userAccountPublicKey && wallet && connection) {
+		return;
+	}
+	if (initializeClientsPromise) {
+		return initializeClientsPromise;
 	}
 
-	if (!process.env.ENDPOINT) {
-		throw new Error('ENDPOINT environment variable must be set to your Solana RPC endpoint');
-	}
+	initializeClientsPromise = (async () => {
+		console.log(`${GREEN}🚀 Initializing clients...${NC}\n`);
 
-	// Setup wallet with Swift-compatible signMessage support
-	class SwiftWallet extends anchor.Wallet {
-		async signMessage(message: Uint8Array): Promise<Uint8Array> {
-			if (!this.payer) {
-				throw new Error('Wallet must have a payer to sign messages');
-			}
-			return nacl.sign.detached(message, this.payer.secretKey);
+		if (!process.env.ANCHOR_WALLET) {
+			throw new Error('ANCHOR_WALLET must be set in .env file');
 		}
-	}
 
-	wallet = new SwiftWallet(loadKeypair(process.env.ANCHOR_WALLET as string)) as SwiftEnabledWallet;
-	console.log(`✅ Wallet: ${wallet.publicKey.toString()}`);
+		if (!process.env.ENDPOINT) {
+			throw new Error('ENDPOINT environment variable must be set to your Solana RPC endpoint');
+		}
 
-	// Setup connection with auth headers
-	connection = new Connection(process.env.ENDPOINT as string, {
-		commitment: 'confirmed',
-		httpHeaders: process.env.RPC_API_KEY
-			? { Authorization: `Bearer ${process.env.RPC_API_KEY}` }
-			: undefined,
-	});
+		// Setup wallet with Swift-compatible signMessage support
+		class SwiftWallet extends anchor.Wallet {
+			async signMessage(message: Uint8Array): Promise<Uint8Array> {
+				if (!this.payer) {
+					throw new Error('Wallet must have a payer to sign messages');
+				}
+				return nacl.sign.detached(message, this.payer.secretKey);
+			}
+		}
 
-	// Initialize AuthorityDrift with DriftOperations
-	authorityDrift = new AuthorityDrift({
-		solanaRpcEndpoint: process.env.ENDPOINT as string,
-		driftEnv: 'mainnet-beta',
-		wallet,
-		additionalDriftClientConfig: {
-			connection, // Pass the connection with auth headers
-			txVersion: 0,
-			txParams: {
-				computeUnits: 300000,
-				computeUnitsPrice: 1000,
+		wallet = new SwiftWallet(loadKeypair(process.env.ANCHOR_WALLET as string)) as SwiftEnabledWallet;
+		console.log(`✅ Wallet: ${wallet.publicKey.toString()}`);
+
+		// Setup connection with auth headers
+		connection = new Connection(process.env.ENDPOINT as string, {
+			commitment: 'confirmed',
+			httpHeaders: process.env.RPC_API_KEY
+				? { Authorization: `Bearer ${process.env.RPC_API_KEY}` }
+				: undefined,
+		});
+
+		// Initialize AuthorityDrift with DriftOperations
+		authorityDrift = new AuthorityDrift({
+			solanaRpcEndpoint: process.env.ENDPOINT as string,
+			driftEnv: 'mainnet-beta',
+			wallet,
+			additionalDriftClientConfig: {
+				connection, // Pass the connection with auth headers
+				txVersion: 0,
+				txParams: {
+					computeUnits: 300000,
+					computeUnitsPrice: 1000,
+				},
 			},
-		},
-	});
+		});
 
-	console.log('📡 Subscribing to market data (AuthorityDrift)...');
-	await authorityDrift.subscribe();
+		console.log('📡 Subscribing to market data (AuthorityDrift)...');
+		await authorityDrift.subscribe();
 
-	// Ensure user account is loaded
-	if (!authorityDrift.driftClient.hasUser(0)) {
-		await authorityDrift.driftClient.addUser(0, wallet.publicKey);
-	}
-	userAccountPublicKey = await authorityDrift.driftClient.getUserAccountPublicKey(
-		0,
-		wallet.publicKey
-	);
+		// Ensure user account is loaded
+		if (!authorityDrift.driftClient.hasUser(0)) {
+			await authorityDrift.driftClient.addUser(0, wallet.publicKey);
+		}
+		userAccountPublicKey = await authorityDrift.driftClient.getUserAccountPublicKey(
+			0,
+			wallet.publicKey
+		);
 
-	const rpcApiKey = process.env.RPC_API_KEY;
-	console.log('🏗️  Initializing CentralServerDrift...');
-	centralServerDrift = new CentralServerDrift({
-		solanaRpcEndpoint: process.env.ENDPOINT as string,
-		driftEnv: 'mainnet-beta',
-		rpcApiKey,
-		additionalDriftClientConfig: {
-			txVersion: 0,
-			txParams: {
-				computeUnits: 200000,
-				computeUnitsPrice: 1000,
+		const rpcApiKey = process.env.RPC_API_KEY;
+		console.log('🏗️  Initializing CentralServerDrift...');
+		centralServerDrift = new CentralServerDrift({
+			solanaRpcEndpoint: process.env.ENDPOINT as string,
+			driftEnv: 'mainnet-beta',
+			rpcApiKey,
+			additionalDriftClientConfig: {
+				txVersion: 0,
+				txParams: {
+					computeUnits: 200000,
+					computeUnitsPrice: 1000,
+				},
 			},
-		},
-	});
-	await centralServerDrift.subscribe();
-	console.log('✅ CentralServerDrift ready');
+		});
+		await centralServerDrift.subscribe();
+		console.log('✅ CentralServerDrift ready');
 
-	console.log('✅ Connected to Drift Protocol\n');
+		console.log('✅ Connected to Drift Protocol\n');
+	})();
+
+	try {
+		await initializeClientsPromise;
+	} finally {
+		initializeClientsPromise = null;
+	}
+}
+
+export async function ensurePerpClientsInitialized(): Promise<void> {
+	await initializeClients();
 }
 
 async function getPositions(): Promise<PositionSummary[]> {
@@ -240,9 +263,9 @@ function printPositionDetails(pos: PositionSummary, label?: string) {
  * Execute a regular transaction
  */
 async function executeTransaction(
-	txn: VersionedTransaction,
+	txn: VersionedTransaction | Transaction,
 	transactionType: string
-): Promise<void> {
+): Promise<string | undefined> {
 	if (!centralServerDrift) {
 		throw new Error('CentralServerDrift must be initialized before executing transactions');
 	}
@@ -250,7 +273,11 @@ async function executeTransaction(
 	console.log(`✅ ${transactionType} transaction created successfully`);
 	console.log('\n📝 Signing Transaction...');
 
-	txn.sign([wallet.payer]);
+	if (txn instanceof VersionedTransaction) {
+		txn.sign([wallet.payer]);
+	} else {
+		txn.sign(wallet.payer);
+	}
 	console.log('✅ Transaction signed successfully');
 
 	console.log('\n🚀 Sending transaction to the network...');
@@ -262,6 +289,7 @@ async function executeTransaction(
 		console.log(`🔍 View on Solscan: https://solscan.io/tx/${signature}`);
 	}
 	console.log();
+	return signature;
 }
 
 const BN_100 = new BN(100);
@@ -332,6 +360,249 @@ async function waitForAllPositionsClosed(
 	}
 
 	return false;
+}
+
+type ExecutableTransaction = VersionedTransaction | Transaction;
+
+function ensureExecutableTransaction(result: any): ExecutableTransaction {
+	if (result instanceof VersionedTransaction || result instanceof Transaction) {
+		return result;
+	}
+	if (result && typeof result === 'object' && typeof result.serialize === 'function') {
+		return result as ExecutableTransaction;
+	}
+	throw new Error('Unsupported transaction type returned from CentralServerDrift (Swift orders not supported in arcade flow).');
+}
+
+export interface PlacePerpLimitOrderParams {
+	direction?: PositionDirection;
+	size?: number;
+	limitPrice?: number;
+	slippageBps?: number;
+	waitForFill?: boolean;
+	marketIndex?: number;
+}
+
+export interface PlacePerpLimitOrderResult {
+	signature?: string;
+	position?: PositionSummary | null;
+}
+
+async function placePerpLimitOrder(
+	params: PlacePerpLimitOrderParams = {}
+): Promise<PlacePerpLimitOrderResult> {
+	await ensurePerpClientsInitialized();
+
+	const direction = params.direction ?? PositionDirection.LONG;
+	const baseSize = params.size ?? DEFAULT_POSITION_SIZE;
+	const marketIndex = params.marketIndex ?? MARKET_INDEX;
+	const slippageBps = params.slippageBps ?? DEFAULT_LIMIT_ORDER_SLIPPAGE_BPS;
+	const amountRaw = Math.round(baseSize * BASE_PRECISION.toNumber());
+	const amountBN = new BN(amountRaw);
+	const slippagePct = slippageBps / 10_000;
+
+	const resolvedLimitPrice = (() => {
+		if (params.limitPrice != null) {
+			return params.limitPrice;
+		}
+		const oracleData = authorityDrift.driftClient.getOracleDataForPerpMarket(marketIndex);
+		if (!oracleData) {
+			throw new Error('Oracle data unavailable. Cannot place limit order.');
+		}
+		const oraclePrice = oracleData.price.toNumber() / PRICE_PRECISION.toNumber();
+		if (direction === PositionDirection.LONG) {
+			return oraclePrice * (1 + slippagePct);
+		}
+		return oraclePrice * Math.max(0, 1 - slippagePct);
+	})();
+
+	const limitPriceRaw = Math.round(resolvedLimitPrice * PRICE_PRECISION.toNumber());
+	const limitPriceBN = new BN(limitPriceRaw);
+
+	const limitOrderTxn = await centralServerDrift.getOpenPerpNonMarketOrderTxn(
+		userAccountPublicKey,
+		marketIndex,
+		direction,
+		amountBN,
+		'base',
+		limitPriceBN,
+		undefined,
+		'limit',
+		false,
+		undefined,
+		false
+	);
+
+	const signature = await executeTransaction(
+		ensureExecutableTransaction(limitOrderTxn),
+		'Open Perp Limit Order'
+	);
+
+	let position: PositionSummary | null = null;
+	if (params.waitForFill ?? true) {
+		position = await waitForPositionFill(direction, amountBN);
+	}
+
+	return { signature, position };
+}
+
+export interface ClosePerpPositionsOptions {
+	direction?: PositionDirection;
+	marketIndex?: number;
+	waitForClose?: boolean;
+}
+
+export interface ClosePerpPositionsResult {
+	signatures: string[];
+	remainingPositions: PositionSummary[];
+}
+
+async function closePerpPositions(
+	options: ClosePerpPositionsOptions = {}
+): Promise<ClosePerpPositionsResult> {
+	await ensurePerpClientsInitialized();
+	const targetMarketIndex = options.marketIndex ?? MARKET_INDEX;
+	const openPositions = await getPositions();
+	const targets = openPositions.filter((pos) => {
+		const matchesMarket = pos.marketIndex === targetMarketIndex;
+		const matchesDirection = options.direction
+			? pos.directionEnum === options.direction
+			: true;
+		return matchesMarket && matchesDirection;
+	});
+
+	if (targets.length === 0) {
+		return { signatures: [], remainingPositions: openPositions };
+	}
+
+	const signatures: string[] = [];
+	for (const position of targets) {
+		if (position.baseAssetAmountRaw.isZero()) {
+			continue;
+		}
+		const closeDirection =
+			position.direction === 'LONG'
+				? PositionDirection.SHORT
+				: PositionDirection.LONG;
+		const closeOrderTxn = await centralServerDrift.getOpenPerpMarketOrderTxn(
+			userAccountPublicKey,
+			'base',
+			position.marketIndex,
+			closeDirection,
+			position.baseAssetAmountRaw,
+			authorityDrift.driftEndpoints.dlobServerHttpUrl,
+			{ reduceOnly: true },
+			false
+		);
+		const sig = await executeTransaction(
+			ensureExecutableTransaction(closeOrderTxn),
+			'Close Perp Position'
+		);
+		if (sig) {
+			signatures.push(sig);
+		}
+	}
+
+	if (options.waitForClose ?? true) {
+		await waitForAllPositionsClosed();
+	}
+
+	const remainingPositions = await getPositions();
+	return { signatures, remainingPositions };
+}
+
+async function getOpenPerpPositions(): Promise<PositionSummary[]> {
+	await ensurePerpClientsInitialized();
+	return getPositions();
+}
+
+export interface PlaceLimitOrderRequest extends PlacePerpLimitOrderParams {
+	orderId: string;
+	targetPrice: number;
+}
+
+export interface PlaceLimitOrderResponse extends PlacePerpLimitOrderResult {
+	direction: PositionDirection;
+	marketIndex: number;
+}
+
+export interface ClosePositionsResponse extends ClosePerpPositionsResult {
+	direction?: PositionDirection;
+	marketIndex: number;
+}
+
+export interface PerpTradingService {
+	initialize(): Promise<void>;
+	placeLimitOrder(request: PlaceLimitOrderRequest): Promise<PlaceLimitOrderResponse>;
+	handleTrigger(orderId: string): Promise<ClosePositionsResponse>;
+	handleExpiry(orderId: string): Promise<ClosePositionsResponse>;
+	getOpenPositions(): Promise<PositionSummary[]>;
+}
+
+export class DriftPerpTradingService implements PerpTradingService {
+	private readonly orderMeta = new Map<string, { direction: PositionDirection; marketIndex: number }>();
+
+	public async initialize(): Promise<void> {
+		await ensurePerpClientsInitialized();
+	}
+
+	public async placeLimitOrder(
+		request: PlaceLimitOrderRequest
+	): Promise<PlaceLimitOrderResponse> {
+		await this.initialize();
+		const marketIndex = request.marketIndex ?? MARKET_INDEX;
+		const direction = request.direction ?? this.inferDirection(request.targetPrice, marketIndex);
+		const result = await placePerpLimitOrder({
+			direction,
+			size: request.size,
+			limitPrice: request.targetPrice,
+			slippageBps: request.slippageBps,
+			waitForFill: request.waitForFill ?? false,
+			marketIndex,
+		});
+		this.orderMeta.set(request.orderId, { direction, marketIndex });
+		return { ...result, direction, marketIndex };
+	}
+
+	public async handleTrigger(orderId: string): Promise<ClosePositionsResponse> {
+		return this.closeAndMaybeForget(orderId);
+	}
+
+	public async handleExpiry(orderId: string): Promise<ClosePositionsResponse> {
+		return this.closeAndMaybeForget(orderId);
+	}
+
+	public async getOpenPositions(): Promise<PositionSummary[]> {
+		await this.initialize();
+		return getOpenPerpPositions();
+	}
+
+	private inferDirection(targetPrice: number, marketIndex: number): PositionDirection {
+		try {
+			const authority = getAuthorityDriftInstance();
+			const oracle = authority.driftClient.getOracleDataForPerpMarket(marketIndex);
+			if (!oracle) {
+				return PositionDirection.LONG;
+			}
+			const price = oracle.price.toNumber() / PRICE_PRECISION.toNumber();
+			return targetPrice >= price ? PositionDirection.LONG : PositionDirection.SHORT;
+		} catch (_err) {
+			return PositionDirection.LONG;
+		}
+	}
+
+	private async closeAndMaybeForget(orderId: string): Promise<ClosePositionsResponse> {
+		await this.initialize();
+		const meta = this.orderMeta.get(orderId);
+		const marketIndex = meta?.marketIndex ?? MARKET_INDEX;
+		const result = await closePerpPositions({
+			direction: meta?.direction,
+			marketIndex,
+			waitForClose: true,
+		});
+		this.orderMeta.delete(orderId);
+		return { ...result, direction: meta?.direction, marketIndex };
+	}
 }
 
 async function getPositionOnly() {
