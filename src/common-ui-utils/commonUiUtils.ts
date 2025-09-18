@@ -231,9 +231,9 @@ const getMarketKey = (marketIndex: number, marketType: MarketType) =>
 const createThrowawayIWallet = (walletPubKey?: PublicKey) => {
 	const newKeypair = walletPubKey
 		? new Keypair({
-				publicKey: walletPubKey.toBytes(),
-				secretKey: new Keypair().publicKey.toBytes(),
-		  })
+			publicKey: walletPubKey.toBytes(),
+			secretKey: new Keypair().publicKey.toBytes(),
+		})
 		: new Keypair();
 
 	const newWallet: IWallet = {
@@ -258,9 +258,9 @@ const createThrowawayIWallet = (walletPubKey?: PublicKey) => {
 const createPlaceholderIWallet = (walletPubKey?: PublicKey) => {
 	const newKeypair = walletPubKey
 		? new Keypair({
-				publicKey: walletPubKey.toBytes(),
-				secretKey: new Keypair().publicKey.toBytes(),
-		  })
+			publicKey: walletPubKey.toBytes(),
+			secretKey: new Keypair().publicKey.toBytes(),
+		})
 		: new Keypair();
 
 	const newWallet: IWallet = {
@@ -921,38 +921,38 @@ const trimTrailingZeros = (str: string, zerosToShow = 1) => {
 
 const formatTokenInputCurried =
 	(setAmount: (amount: string) => void, spotMarketConfig: SpotMarketConfig) =>
-	(newAmount: string) => {
-		if (isNaN(+newAmount)) return;
+		(newAmount: string) => {
+			if (isNaN(+newAmount)) return;
 
-		if (newAmount === '') {
-			setAmount('');
-			return;
-		}
-
-		const lastChar = newAmount[newAmount.length - 1];
-
-		// if last char of string is a decimal point, don't format
-		if (lastChar === '.') {
-			setAmount(newAmount);
-			return;
-		}
-
-		if (lastChar === '0') {
-			// if last char of string is a zero in the decimal places, cut it off if it exceeds precision
-			const numOfDigitsAfterDecimal = newAmount.split('.')[1]?.length ?? 0;
-			if (numOfDigitsAfterDecimal > spotMarketConfig.precisionExp.toNumber()) {
-				setAmount(newAmount.slice(0, -1));
-			} else {
-				setAmount(newAmount);
+			if (newAmount === '') {
+				setAmount('');
+				return;
 			}
-			return;
-		}
 
-		const formattedAmount = Number(
-			(+newAmount).toFixed(spotMarketConfig.precisionExp.toNumber())
-		);
-		setAmount(formattedAmount.toString());
-	};
+			const lastChar = newAmount[newAmount.length - 1];
+
+			// if last char of string is a decimal point, don't format
+			if (lastChar === '.') {
+				setAmount(newAmount);
+				return;
+			}
+
+			if (lastChar === '0') {
+				// if last char of string is a zero in the decimal places, cut it off if it exceeds precision
+				const numOfDigitsAfterDecimal = newAmount.split('.')[1]?.length ?? 0;
+				if (numOfDigitsAfterDecimal > spotMarketConfig.precisionExp.toNumber()) {
+					setAmount(newAmount.slice(0, -1));
+				} else {
+					setAmount(newAmount);
+				}
+				return;
+			}
+
+			const formattedAmount = Number(
+				(+newAmount).toFixed(spotMarketConfig.precisionExp.toNumber())
+			);
+			setAmount(formattedAmount.toString());
+		};
 
 // --- Export The Utils
 

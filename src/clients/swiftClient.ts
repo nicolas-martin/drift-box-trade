@@ -270,12 +270,12 @@ export class SwiftClient {
 	): Promise<
 		ClientResponse<
 			| {
-					orderId: string;
-					status: 'confirmed';
-			  }
+				orderId: string;
+				status: 'confirmed';
+			}
 			| {
-					status: 'expired';
-			  }
+				status: 'expired';
+			}
 		>
 	> {
 		const expireTime = Date.now() + confirmDuration;

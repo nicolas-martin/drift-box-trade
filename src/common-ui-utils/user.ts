@@ -206,14 +206,14 @@ const checkIfUserAccountExists = async (
 	driftClient: DriftClient,
 	config:
 		| {
-				type: 'userPubKey';
-				userPubKey: PublicKey;
-		  }
+			type: 'userPubKey';
+			userPubKey: PublicKey;
+		}
 		| {
-				type: 'subAccountId';
-				subAccountId: number;
-				authority: PublicKey;
-		  }
+			type: 'subAccountId';
+			subAccountId: number;
+			authority: PublicKey;
+		}
 ) => {
 	let userPubKey: PublicKey;
 

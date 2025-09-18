@@ -35,12 +35,11 @@ const getOrderLabelFromOrderDetails = (
 		return UI_ORDER_TYPES.market.label;
 
 	if (matchEnum(orderDetails.orderType, OrderType.LIMIT))
-		return `${
-			orderDetails.oraclePriceOffset &&
-			!orderDetails.oraclePriceOffset?.eqZero()
+		return `${orderDetails.oraclePriceOffset &&
+				!orderDetails.oraclePriceOffset?.eqZero()
 				? 'Oracle '
 				: ''
-		}${UI_ORDER_TYPES.limit.label}`;
+			}${UI_ORDER_TYPES.limit.label}`;
 
 	if (matchEnum(orderDetails.orderType, OrderType.ORACLE))
 		return UI_ORDER_TYPES.oracle.label;
@@ -78,16 +77,16 @@ const getOrderLabelFromOrderDetails = (
 					? 'Trigger Market' // trigger above, existing position short, order direction short
 					: UI_ORDER_TYPES.stopMarket.label // trigger above, existing position short, order direction long
 				: isOrderDirectionShort
-				? UI_ORDER_TYPES.takeProfitMarket.label // trigger above, existing position long, order direction short
-				: 'Trigger Market'; // trigger above, existing position long, order direction long
+					? UI_ORDER_TYPES.takeProfitMarket.label // trigger above, existing position long, order direction short
+					: 'Trigger Market'; // trigger above, existing position long, order direction long
 		} else {
 			return isExistingPositionShort
 				? isOrderDirectionShort
 					? 'Trigger Market' // trigger below, existing position short, order direction short
 					: UI_ORDER_TYPES.takeProfitMarket.label // trigger below, existing position short, order direction long
 				: isOrderDirectionShort
-				? UI_ORDER_TYPES.stopMarket.label // trigger below, existing position long, order direction short
-				: 'Trigger Market'; // trigger below, existing position long, order direction long
+					? UI_ORDER_TYPES.stopMarket.label // trigger below, existing position long, order direction short
+					: 'Trigger Market'; // trigger below, existing position long, order direction long
 		}
 	}
 
@@ -125,16 +124,16 @@ const getOrderLabelFromOrderDetails = (
 					? 'Trigger Limit' // trigger above, existing position long, order direction long
 					: UI_ORDER_TYPES.takeProfitLimit.label // trigger above, existing position long, order direction short
 				: isExistingPositionLong
-				? UI_ORDER_TYPES.stopLimit.label // trigger above, existing position short, order direction long
-				: 'Trigger Limit'; // trigger above, existing position short, order direction short
+					? UI_ORDER_TYPES.stopLimit.label // trigger above, existing position short, order direction long
+					: 'Trigger Limit'; // trigger above, existing position short, order direction short
 		} else {
 			return isExistingPositionLong
 				? isOrderDirectionLong
 					? 'Trigger Limit' // trigger below, existing position long, order direction long
 					: UI_ORDER_TYPES.stopLimit.label // trigger below, existing position long, order direction short
 				: isExistingPositionLong
-				? UI_ORDER_TYPES.takeProfitLimit.label // trigger below, existing position short, order direction long
-				: 'Trigger Limit'; // trigger below, existing position short, order direction short
+					? UI_ORDER_TYPES.takeProfitLimit.label // trigger below, existing position short, order direction long
+					: 'Trigger Limit'; // trigger below, existing position short, order direction short
 		}
 	}
 
@@ -160,7 +159,7 @@ const getLimitPriceFromOracleOffset = (
 function isAuctionEmpty(auctionParams: AuctionParams) {
 	return (
 		auctionParams.auctionStartPrice ===
-			EMPTY_AUCTION_PARAMS.auctionStartPrice &&
+		EMPTY_AUCTION_PARAMS.auctionStartPrice &&
 		auctionParams.auctionEndPrice === EMPTY_AUCTION_PARAMS.auctionEndPrice &&
 		auctionParams.auctionDuration === EMPTY_AUCTION_PARAMS.auctionDuration
 	);
