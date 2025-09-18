@@ -1,11 +1,33 @@
-import { PRICE_PRECISION, QUOTE_PRECISION } from '@drift-labs/sdk';
-import { Subscription } from 'rxjs';
-import { initializeClients, getAuthorityDriftInstance, MARKET_INDEX } from './perp-test-flow';
-import { MarketId } from '../types';
+import { getArcadePerpService, PerpPnlUpdate } from './ArcadePerpService';
 
-const subscriptions: Subscription[] = [];
 let shuttingDown = false;
-let hasOpenPosition = false;
+let releasePnl: (() => void) | null = null;
+
+async function runPerpPnlStream() {
+	console.log('🚀 Starting perp PnL stream test...');
+	const service = getArcadePerpService();
+	await service.initialize();
+
+	releasePnl = await service.subscribeToPnl((update) => {
+		printPnl(update);
+	});
+
+	console.log('📡 Streaming updates... Press Ctrl+C to exit.');
+
+	const shutdown = async () => {
+		if (shuttingDown) return;
+		shuttingDown = true;
+
+		console.log('\n🛑 Shutting down stream...');
+		releasePnl?.();
+		await service.getAuthorityDrift().unsubscribe();
+		console.log('✅ Stream closed.');
+		process.exit(0);
+	};
+
+	process.on('SIGINT', shutdown);
+	process.on('SIGTERM', shutdown);
+}
 
 function formatPrice(raw: number): string {
 	return `$${raw.toFixed(4)}`;
@@ -16,71 +38,18 @@ function formatPnl(pnl: number): string {
 	return `${sign}${Math.abs(pnl).toFixed(4)}`;
 }
 
-async function runPerpPnlStream() {
-	console.log('🚀 Starting perp PnL stream test...');
-	await initializeClients();
-
-	const authorityDrift = getAuthorityDriftInstance();
-	const marketKey = MarketId.createPerpMarket(MARKET_INDEX).key;
-
-	const markPriceSub = authorityDrift.onMarkPricesUpdate((lookup) => {
-		const data = lookup[marketKey];
-		if (!data) return;
-
-		const markPrice = data.markPrice.toNumber() / PRICE_PRECISION.toNumber();
-		console.log(`📉 Mark Price Update: ${formatPrice(markPrice)}`);
-	});
-	subscriptions.push(markPriceSub);
-
-	const oraclePriceSub = authorityDrift.onOraclePricesUpdate((lookup) => {
-		const data = lookup[marketKey];
-		if (!data) return;
-
-		const oraclePrice = data.price.toNumber() / PRICE_PRECISION.toNumber();
-		console.log(`🔮 Oracle Price Update: ${formatPrice(oraclePrice)}`);
-	});
-	subscriptions.push(oraclePriceSub);
-
-	const userSub = authorityDrift.onUserAccountUpdate((account) => {
-		const position = account.openPerpPositions.find(
-			(pos) => pos.marketIndex === MARKET_INDEX
-		);
-
-		if (!position) {
-			if (hasOpenPosition) {
-				console.log('ℹ️  Position closed. Waiting for new fills to report PnL.');
-				hasOpenPosition = false;
-			}
-			return;
-		}
-		hasOpenPosition = true;
-
-		const pnlBigNum = position.positionPnl.markBased.positionNotionalPnl;
-		const pnlRaw = pnlBigNum.val.toNumber();
-		const pnlUsd = pnlRaw / QUOTE_PRECISION.toNumber();
-		const pnlPct = position.positionPnl.markBased.positionPnlPercentage;
-
+function printPnl(update: PerpPnlUpdate) {
+	const priceLine = `📉 Mark Price Update: ${formatPrice(update.markPrice)}`;
+	const oracleLine = `🔮 Oracle Price Update: ${formatPrice(update.oraclePrice)}`;
+	console.log(priceLine);
+	console.log(oracleLine);
+	if (update.hasPosition) {
 		console.log(
-			`💰 Mark PnL: ${formatPnl(pnlUsd)} USD (${pnlPct.toFixed(2)}%)`
+			`💰 Mark PnL: ${formatPnl(update.pnlUsd)} USD (${update.pnlPct.toFixed(2)}%)`
 		);
-	});
-	subscriptions.push(userSub);
-
-	console.log('📡 Streaming updates... Press Ctrl+C to exit.');
-
-	const shutdown = async () => {
-		if (shuttingDown) return;
-		shuttingDown = true;
-
-		console.log('\n🛑 Shutting down stream...');
-		subscriptions.splice(0).forEach((sub) => sub.unsubscribe());
-		await authorityDrift.unsubscribe();
-		console.log('✅ Stream closed.');
-		process.exit(0);
-	};
-
-	process.on('SIGINT', shutdown);
-	process.on('SIGTERM', shutdown);
+	} else {
+		console.log('ℹ️  No active perp position.');
+	}
 }
 
 if (require.main === module) {

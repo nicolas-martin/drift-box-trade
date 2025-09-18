@@ -3,6 +3,7 @@ import { SoundProvider } from 'react-sounds';
 import { OrderSounds } from './sounds/OrderSounds';
 import { attachOrderHandlers } from './orders/handlers';
 import { L2 } from './pages/L2';
+import { PnlTicker } from './components/PnlTicker';
 
 function App() {
 	// Attach default order handlers once
@@ -15,6 +16,9 @@ function App() {
 		<SoundProvider>
 			<div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
 				<OrderSounds />
+				<div style={{ position: 'absolute', top: 24, right: 24, pointerEvents: 'none' }}>
+					<PnlTicker />
+				</div>
 				<L2 />
 			</div>
 		</SoundProvider>

@@ -1,4 +1,5 @@
 import * as anchor from '@coral-xyz/anchor';
+import { BehaviorSubject, Observable, Subscription } from 'rxjs';
 import {
 	Connection,
 	PublicKey,
@@ -18,6 +19,7 @@ import { Buffer } from 'buffer';
 import { AuthorityDrift } from './Drift/clients/AuthorityDrift';
 import { CentralServerDrift } from './Drift/clients/CentralServerDrift';
 import * as path from 'path';
+import { MarketId } from '../types';
 
 const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -37,6 +39,22 @@ const GREEN = '\x1b[32m';
 const NC = '\x1b[0m';
 
 const BN_100 = new BN(100);
+
+export interface PerpPnlUpdate {
+	markPrice: number;
+	oraclePrice: number;
+	pnlUsd: number;
+	pnlPct: number;
+	hasPosition: boolean;
+}
+
+const DEFAULT_PNL_STATE: PerpPnlUpdate = {
+	markPrice: 0,
+	oraclePrice: 0,
+	pnlUsd: 0,
+	pnlPct: 0,
+	hasPosition: false,
+};
 
 type SwiftEnabledWallet = anchor.Wallet & {
 	signMessage(message: Uint8Array): Promise<Uint8Array>;
@@ -92,6 +110,9 @@ export interface PerpTradingService {
 	getAuthorityDrift(): AuthorityDrift;
 	getCentralServerDrift(): CentralServerDrift;
 	getUserAccountPublicKey(): PublicKey;
+	subscribeToPnl(listener: (update: PerpPnlUpdate) => void): Promise<() => void>;
+	observePnl(): Observable<PerpPnlUpdate>;
+	getLatestPnl(): PerpPnlUpdate;
 }
 
 export class ArcadePerpService implements PerpTradingService {
@@ -104,6 +125,13 @@ export class ArcadePerpService implements PerpTradingService {
 	private connection?: Connection;
 	private initializePromise: Promise<void> | null = null;
 	private readonly orderMeta = new Map<string, { direction: PositionDirection; marketIndex: number }>();
+	private readonly pnlSubject = new BehaviorSubject<PerpPnlUpdate>(DEFAULT_PNL_STATE);
+	private pnlState: PerpPnlUpdate = DEFAULT_PNL_STATE;
+	private pnlRefCount = 0;
+	private pnlStarted = false;
+	private markPriceSubscription: Subscription | null = null;
+	private oraclePriceSubscription: Subscription | null = null;
+	private userSubscription: Subscription | null = null;
 
 	public static getInstance(): ArcadePerpService {
 		if (!ArcadePerpService.instance) {
@@ -283,6 +311,36 @@ export class ArcadePerpService implements PerpTradingService {
 		return this.userAccountPublicKey;
 	}
 
+	public async subscribeToPnl(listener: (update: PerpPnlUpdate) => void): Promise<() => void> {
+		await this.initialize();
+		this.pnlRefCount += 1;
+		try {
+			await this.ensurePnlStreaming();
+		} catch (error) {
+			this.pnlRefCount = Math.max(0, this.pnlRefCount - 1);
+			throw error;
+		}
+		const subscription = this.pnlSubject.subscribe(listener);
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			subscription.unsubscribe();
+			this.pnlRefCount = Math.max(0, this.pnlRefCount - 1);
+			if (this.pnlRefCount === 0) {
+				this.stopPnlStreaming();
+			}
+		};
+	}
+
+	public observePnl(): Observable<PerpPnlUpdate> {
+		return this.pnlSubject.asObservable();
+	}
+
+	public getLatestPnl(): PerpPnlUpdate {
+		return this.pnlState;
+	}
+
 	private async closeAndCleanup(orderId: string): Promise<ClosePositionsResponse> {
 		await this.initialize();
 		const meta = this.orderMeta.get(orderId);
@@ -428,6 +486,71 @@ export class ArcadePerpService implements PerpTradingService {
 		throw new Error('Unsupported transaction type returned from CentralServerDrift (Swift orders not supported in arcade flow).');
 	}
 
+	private async ensurePnlStreaming(): Promise<void> {
+		if (this.pnlStarted) {
+			return;
+		}
+
+		const authority = this.getAuthorityDrift();
+		const marketKey = MarketId.createPerpMarket(MARKET_INDEX).key;
+
+		this.markPriceSubscription = authority.onMarkPricesUpdate((lookup) => {
+			const data = lookup[marketKey];
+			if (!data) return;
+			const markPrice = data.markPrice.toNumber() / PRICE_PRECISION.toNumber();
+			this.updatePnl({ markPrice });
+		});
+
+		this.oraclePriceSubscription = authority.onOraclePricesUpdate((lookup) => {
+			const data = lookup[marketKey];
+			if (!data) return;
+			const oraclePrice = data.price.toNumber() / PRICE_PRECISION.toNumber();
+			this.updatePnl({ oraclePrice });
+		});
+
+		this.userSubscription = authority.onUserAccountUpdate((account) => {
+			const position = account.openPerpPositions.find((pos) => pos.marketIndex === MARKET_INDEX);
+			if (!position) {
+				if (this.pnlState.hasPosition) {
+					this.updatePnl({ hasPosition: false, pnlUsd: 0, pnlPct: 0 });
+				}
+				return;
+			}
+
+			const pnlBigNum = position.positionPnl.markBased.positionNotionalPnl;
+			const pnlUsd = pnlBigNum.val.toNumber() / QUOTE_PRECISION.toNumber();
+			const pnlPct = position.positionPnl.markBased.positionPnlPercentage ?? 0;
+
+			this.updatePnl({ pnlUsd, pnlPct, hasPosition: true });
+		});
+
+		this.pnlStarted = true;
+	}
+
+	private stopPnlStreaming(): void {
+		if (!this.pnlStarted) {
+			return;
+		}
+		this.markPriceSubscription?.unsubscribe();
+		this.oraclePriceSubscription?.unsubscribe();
+		this.userSubscription?.unsubscribe();
+		this.markPriceSubscription = null;
+		this.oraclePriceSubscription = null;
+		this.userSubscription = null;
+		this.pnlStarted = false;
+		this.resetPnlState();
+	}
+
+	private updatePnl(partial: Partial<PerpPnlUpdate>): void {
+		this.pnlState = { ...this.pnlState, ...partial };
+		this.pnlSubject.next(this.pnlState);
+	}
+
+	private resetPnlState(): void {
+		this.pnlState = { ...DEFAULT_PNL_STATE };
+		this.pnlSubject.next(this.pnlState);
+	}
+
 	private async waitForPositionFill(
 		direction: PositionDirection,
 		targetAmount: BN,
@@ -523,7 +646,25 @@ export class ArcadePerpService implements PerpTradingService {
 			});
 		}
 
+		this.syncPnlFromPositions(positions);
+
 		return positions;
+	}
+
+	private syncPnlFromPositions(positions: PositionSummary[]): void {
+		if (positions.length === 0) {
+			this.updatePnl({ hasPosition: false, pnlUsd: 0, pnlPct: 0 });
+			return;
+		}
+
+		const position = positions[0];
+		const pnlPct = position.notional ? (position.pnl / position.notional) * 100 : 0;
+		this.updatePnl({
+			hasPosition: true,
+			pnlUsd: position.pnl,
+			pnlPct,
+			markPrice: position.currentPrice,
+		});
 	}
 
 	private sleep(ms: number) {
