@@ -1,36 +1,45 @@
 {
   "compilerOptions": {
-    "target": "es2019",
-    "module": "Node16",
-    "moduleResolution": "node16",
-    "jsx": "react-jsx",
-    "lib": [
-      "dom",
-      "esnext"
-    ],
-    "baseUrl": ".",
-    "rootDir": "./src",
-    "paths": {
-      "@/*": [
-        "src/*"
-      ]
-    },
-    "esModuleInterop": true,
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
     "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+
+    /* Path mapping */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    /* Other options */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": false,
-    "useDefineForClassFields": false
+    "useDefineForClassFields": false,
+    "allowJs": true
   },
-  "include": [
-    "./src"
-  ],
-  "exclude": [
-    "node_modules"
-  ],
+  "include": ["src"],
+  "exclude": ["node_modules"],
   "ts-node": {
     "transpileOnly": true,
     "compilerOptions": {
-      "target": "es2019",
+      "target": "ES2019",
       "module": "Node16",
       "moduleResolution": "node16",
       "esModuleInterop": true,
