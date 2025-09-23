@@ -312,14 +312,20 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 	}
 
 	function onCreated(id: string) {
-		const rect = (svg.node() as SVGSVGElement).querySelector(`[data-order="${id}"] rect`) as SVGRectElement | null;
-		if (!rect) return;
-		animateOrderCreate(rect);
 		const o = orders.get(id);
 		if (o) {
+			// Emit events and callbacks immediately to preserve user interaction context
 			cfg.onCreateOrder?.(o);
 			emitOrderEvent('order:create', { order: o });
 		}
+
+		// Schedule animation for next frame when the element exists
+		requestAnimationFrame(() => {
+			const rect = (svg.node() as SVGSVGElement).querySelector(`[data-order="${id}"] rect`) as SVGRectElement | null;
+			if (rect) {
+				animateOrderCreate(rect);
+			}
+		});
 	}
 
 	// --- Hover + Pointer create: only future cells ---
@@ -420,10 +426,13 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 		occupied.add(key);
 		hideHover();
 
-		// Schedule render and animations asynchronously
+		// Call onCreated immediately to preserve user interaction context for audio
+		// This must happen synchronously with the click event
+		onCreated(box.id);
+
+		// Schedule render asynchronously
 		requestAnimationFrame(() => {
 			render();
-			onCreated(box.id);
 		});
 	});
 
