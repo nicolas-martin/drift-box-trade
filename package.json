@@ -5,12 +5,10 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "cd .. && ts-node --project trading-arcade-game/tsconfig.json trading-arcade-game/src/demo.ts",
-    "start": "react-app-rewired start",
-    "web": "react-app-rewired start",
-    "build": "react-app-rewired build",
-    "test": "react-app-rewired test",
-    "eject": "react-scripts eject",
-    "preview": "serve -s build",
+    "web": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "echo 'no tests'",
     "test:perps": "ts-node -r tsconfig-paths/register --project tsconfig.json src/integration/jupiter-limit-order.ts",
     "owner:market": "ts-node -r tsconfig-paths/register --project tsconfig.json src/integration/jupiter-owner-create-market.ts",
     "keeper": "ts-node -r tsconfig-paths/register --project tsconfig.json src/keeper/keeper.ts",
@@ -53,35 +51,11 @@
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
-    "browserify-zlib": "^0.2.0",
-    "buffer": "^6.0.3",
-    "crypto-browserify": "^3.12.1",
-    "customize-cra": "^1.0.0",
-    "https-browserify": "^1.0.0",
-    "os-browserify": "^0.3.0",
-    "path-browserify": "^1.0.1",
     "postcss": "^8.4.32",
-    "process": "^0.11.10",
-    "react-app-rewired": "^2.2.1",
-    "react-scripts": "^5.0.1",
-    "stream-browserify": "^3.0.0",
-    "stream-http": "^3.2.0",
     "tailwindcss": "^3.3.6",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.3",
     "vite": "^5.0.10"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
   }
 }
