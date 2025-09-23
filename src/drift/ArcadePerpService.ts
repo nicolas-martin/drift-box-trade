@@ -18,11 +18,7 @@ import nacl from 'tweetnacl';
 import { Buffer } from 'buffer';
 import { AuthorityDrift } from './Drift/clients/AuthorityDrift';
 import { CentralServerDrift } from './Drift/clients/CentralServerDrift';
-import * as path from 'path';
 import { MarketId } from '../types';
-
-const dotenv = require('dotenv');
-dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const POSITION_SIZE = '0.01';
 export const DEFAULT_POSITION_SIZE = parseFloat(POSITION_SIZE);
