@@ -60,7 +60,7 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 		windowMs: 60_000,
 		stepMs: 5_000,
 		stepP: 0.5,
-		tickMs: 200,
+		tickMs: 16,
 		squareMode: true,
 		throttleMs: 100,
 		stepPPercent: 0.001,
@@ -224,14 +224,14 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 			.attr("class", (d) => `order ${d.status}`)
 			.attr("data-order", d => d.id);
 
-    merged.select<SVGRectElement>("rect")
-        .attr("x", d => Math.min(xz(d.t0), xz(d.t1)))
-        .attr("y", d => Math.min(yz(d.p1), yz(d.p0)))
-        .attr("width", d => Math.abs(xz(d.t1) - xz(d.t0)))
-        .attr("height", d => Math.abs(yz(d.p0) - yz(d.p1)))
-        .attr("rx", 2).attr("ry", 2)
-        .style("fill", "rgba(50,160,255,0.18)")
-        .style("stroke", "#69f").style("stroke-width", "1px");
+		merged.select<SVGRectElement>("rect")
+			.attr("x", d => Math.min(xz(d.t0), xz(d.t1)))
+			.attr("y", d => Math.min(yz(d.p1), yz(d.p0)))
+			.attr("width", d => Math.abs(xz(d.t1) - xz(d.t0)))
+			.attr("height", d => Math.abs(yz(d.p0) - yz(d.p1)))
+			.attr("rx", 2).attr("ry", 2)
+			.style("fill", "rgba(50,160,255,0.18)")
+			.style("stroke", "#69f").style("stroke-width", "1px");
 
 		merged.select<SVGTextElement>("text")
 			.attr("transform", d => `translate(${Math.min(xz(d.t0), xz(d.t1)) + 2},${Math.min(yz(d.p1), yz(d.p0)) + 2})`)
@@ -265,7 +265,24 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 			.style("opacity", 1);
 	}
 
+	let renderScheduled = false;
+	let lastRenderTime = 0;
+	const MIN_RENDER_INTERVAL = 16; // 60fps
+
 	function render() {
+		const now = Date.now();
+		if (now - lastRenderTime < MIN_RENDER_INTERVAL) {
+			if (!renderScheduled) {
+				renderScheduled = true;
+				requestAnimationFrame(() => {
+					renderScheduled = false;
+					render();
+				});
+			}
+			return;
+		}
+		lastRenderTime = now;
+
 		if (cfg.squareMode) updateYDomainSquareMode(nowMs());
 		drawGridAxes();
 		drawLine();
@@ -306,53 +323,68 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 	}
 
 	// --- Hover + Pointer create: only future cells ---
-    function hideHover() {
-        animateHoverExit(hoverRect.node() as Element, hoverText.node() as Element);
-        lastHoverKey = null;
-        lastHoverI = null;
-        lastHoverJ = null;
-        // Set hidden state after animation; immediate styles will be set on next draw
-        hoverRect.style("opacity", 0);
-        hoverText.style("opacity", 0);
-    }
+	function hideHover() {
+		animateHoverExit(hoverRect.node() as Element, hoverText.node() as Element);
+		lastHoverKey = null;
+		lastHoverI = null;
+		lastHoverJ = null;
+		// Set hidden state after animation; immediate styles will be set on next draw
+		hoverRect.style("opacity", 0);
+		hoverText.style("opacity", 0);
+	}
 
-overlay.on("mousemove", (ev: MouseEvent) => {
-    if (!hasFirstPrice) return;
-    const [mx, my] = d3.pointer(ev, gRoot.node() as SVGGElement);
-    const { xz, yz } = rescaled();
-    const t = xz.invert(mx).getTime();
-    const p = yz.invert(my);
-    const now = nowMs();
-    if (t < now) { hideHover(); return; }
+	let lastMouseMoveTime = 0;
+	const MOUSE_THROTTLE_MS = 16; // 60fps for mouse
 
-    const iRaw = Math.round(t / cfg.stepMs);
-    const jRaw = Math.round(p / priceStep);
-    const minI = Math.ceil(now / cfg.stepMs);
-    const i = Math.max(iRaw, minI);
-    const j = jRaw;
-    const key = cellKey(i, j);
-    // Do not render hover over an already-occupied cell
-    const sameCell = lastHoverKey === key;
-    if (sameCell) return; // still inside the same snapped cell
+	overlay.on("mousemove", (ev: MouseEvent) => {
+		if (!hasFirstPrice) return;
 
-    // Cursor left the current hover cell: remove existing preview first (animated)
-    hideHover();
+		const now = Date.now();
+		if (now - lastMouseMoveTime < MOUSE_THROTTLE_MS) return;
+		lastMouseMoveTime = now;
 
-    // Verify the new snapped cell is valid (future + not occupied), then show
-    if (occupied.has(key)) { return; }
+		// Execute mouse logic asynchronously
+		requestAnimationFrame(() => {
+			const [mx, my] = d3.pointer(ev, gRoot.node() as SVGGElement);
+			const { xz, yz } = rescaled();
+			const t = xz.invert(mx).getTime();
+			const p = yz.invert(my);
+			const currentTime = nowMs();
+			if (t < currentTime) { hideHover(); return; }
 
-    lastHoverKey = key;
-    lastHoverI = i;
-    lastHoverJ = j;
-    animateHoverEnter(hoverRect.node() as Element, hoverText.node() as Element);
-    render();
-});
+			const iRaw = Math.round(t / cfg.stepMs);
+			const jRaw = Math.round(p / priceStep);
+			const minI = Math.ceil(currentTime / cfg.stepMs);
+			const i = Math.max(iRaw, minI);
+			const j = jRaw;
+			const key = cellKey(i, j);
+			// Do not render hover over an already-occupied cell
+			const sameCell = lastHoverKey === key;
+			if (sameCell) return; // still inside the same snapped cell
+
+			// Cursor left the current hover cell: remove existing preview first (animated)
+			hideHover();
+
+			// Verify the new snapped cell is valid (future + not occupied), then show
+			if (occupied.has(key)) { return; }
+
+			lastHoverKey = key;
+			lastHoverI = i;
+			lastHoverJ = j;
+			animateHoverEnter(hoverRect.node() as Element, hoverText.node() as Element);
+			render();
+		});
+	});
 
 	overlay.on("mouseleave", () => hideHover());
 
-overlay.on("click", (ev: MouseEvent) => {
-    if (!hasFirstPrice) return; // ignore until we have a baseline
-		// Prefer the snapped hover cell if available, to avoid jitter
+	overlay.on("click", (ev: MouseEvent) => {
+		if (!hasFirstPrice) return; // ignore until we have a baseline
+
+		// Process click immediately without waiting for render cycle
+		ev.stopPropagation();
+
+		// Execute click logic immediately
 		let i: number | null = lastHoverI;
 		let j: number | null = lastHoverJ;
 		let key: string | null = lastHoverKey;
@@ -373,6 +405,7 @@ overlay.on("click", (ev: MouseEvent) => {
 
 		if (i == null || j == null || !key) return;
 		if (occupied.has(key)) return; // no overlap
+
 		const tCenter = i * cfg.stepMs;
 		const pCenter = j * priceStep;
 		const box: OrderBox = {
@@ -381,13 +414,18 @@ overlay.on("click", (ev: MouseEvent) => {
 			p0: pCenter - priceStep / 2, p1: pCenter + priceStep / 2,
 			status: "pending",
 		};
-    orders.set(box.id, box);
-    occupied.add(key);
-    // Remove hover immediately on click to avoid duplicate preview
-    hideHover();
-    render();
-    onCreated(box.id);
-});
+
+		// Update state immediately
+		orders.set(box.id, box);
+		occupied.add(key);
+		hideHover();
+
+		// Schedule render and animations asynchronously
+		requestAnimationFrame(() => {
+			render();
+			onCreated(box.id);
+		});
+	});
 
 	// --- Stream timer ---
 	const timer = setInterval(() => {
