@@ -314,12 +314,11 @@ export function initLiveOrders(container: HTMLElement, userCfg?: Partial<Config>
 	function onCreated(id: string) {
 		const o = orders.get(id);
 		if (o) {
-			// Emit events and callbacks immediately to preserve user interaction context
 			cfg.onCreateOrder?.(o);
 			emitOrderEvent('order:create', { order: o });
 		}
 
-		// Schedule animation for next frame when the element exists
+		// Animation needs to wait for DOM element to exist
 		requestAnimationFrame(() => {
 			const rect = (svg.node() as SVGSVGElement).querySelector(`[data-order="${id}"] rect`) as SVGRectElement | null;
 			if (rect) {
